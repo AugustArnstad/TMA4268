@@ -1,0 +1,526 @@
+---
+title: 'Compulsory exercise 2 TMA4268: Group 6'
+author: "August Arnstad, Markus Stokkenes and Ulrik Unneberg"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  pdf_document: default
+  html_notebook: default
+subtitle: TMA4268 Statistical Learning V2022
+editor_options:
+  chunk_output_type: console
+---
+  
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE,tidy=TRUE,message=FALSE,warning=FALSE,strip.white=TRUE,prompt=FALSE,
+                      cache=TRUE, size="scriptsize",fig.width=4, fig.height=3,fig.align = "center")
+```
+
+```{r, eval=TRUE, echo=FALSE}
+library(knitr)
+library(rmarkdown)
+library(MASS)
+library(ISLR)
+library(class) 
+library(caret)
+library(pls)
+library(glmnet)
+library(gam)
+library(gbm)
+library(randomForest)
+library(tree)
+library(ggplot2)
+library(ggfortify)
+library(GGally)
+library(boot)
+library(pROC)
+library(plotROC)
+library(class)
+library(tree)
+library(e1071)
+library(nnet)
+#library(fitnnet) !!!!!!!!!!!!
+library(keras)
+library(leaps)
+library(glmnet)
+library(gam)
+library(kernlab)
+library(pls)
+library(factoextra)
+library(FactoMineR)
+library(factoextra)
+library(ggpubr)
+library(tinytex)
+#tinytex::install_tinytex()
+```
+
+We would like to start by saying that in order to avoid getting a massive size of this report, some output has been commented out. We did not see it necessary to include what has been left out. We apologize for having a paper more than 14 pages long, but most of it is plots and output.
+
+# Task 1)
+
+## a)
+
+```{r, eval=TRUE, echo=TRUE}
+#str(Boston)
+
+set.seed(1)
+
+# pre-processing by scaling NB! Strictly speaking, pre-processing should be done
+# on a training set only and it should be done on a test set with statistics of
+# the pre-processing from the training set. But, we're preprocessing the entire
+# dataset here for convenience.
+boston <- scale(Boston, center = T, scale = T)
+
+#PROBLEM 1a)
+#Perform Forward Stepwise Selection and Backward Stepwise Selection on boston.train method, 
+# and plot a graph of adjusted R2 on the y-axis and a number of predictors on the x-axis.
+
+# split into training and test sets
+train.ind = sample(1:nrow(boston), 0.8 * nrow(boston)) #We do a 80-20 split for training and test respectively
+boston.train = data.frame(boston[train.ind, ])
+summary(boston.train )
+boston.test = data.frame(boston[-train.ind, ])
+
+# Forward
+regfit_fwd = regsubsets(medv~., data = boston.train, nvmax=14, method = "forward")
+regfit_fwd_summary = summary(regfit_fwd)
+#regfit_fwd_summary
+plot(regfit_fwd_summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted R^2", type = "l", main="Forward Stepwise Selection")
+
+# Backward
+regfit_bwd = regsubsets(medv~., data = boston.train,  nvmax=14, method = "backward")
+regfit_bwd_summary = summary(regfit_bwd)
+plot(regfit_bwd_summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted R^2", type = "l", main="Backward Stepwise Selection")
+```
+
+
+## b) 
+```{r, eval=TRUE, echo=TRUE}
+regfit_fwd_summary
+```
+From the fourth line of the summary: The four best predictors, according to the Forward Stepwise Selection, is the predictors $rm$, $dis$, $ptratio$, and $lstat$.
+
+
+## c)
+i )
+We will now do a 5-fold cross-validation on the boston.train data set, with the Lasss, and plot the MSE as a function of $\log \lambda$
+```{r, eval=TRUE, echo=TRUE}
+set.seed(1)
+x = model.matrix(medv~., data=boston.train)
+y = boston.train$medv
+
+set.seed(1)
+cv.lasso = cv.glmnet(x, y , nfolds=5, alpha=1)
+plot(cv.lasso)
+```
+
+ii) 
+We $\lambda$ with minimum MSE is marked with the dotted line to the left:
+
+```{r, eval=TRUE, echo=TRUE}
+cv.lasso$lambda.min
+```
+
+iii) 
+We will now find the coefficients at the best $\lambda$, i.e. at one standard deviation away from the lowest, in the direction of fewer predictors, i.e. to the right. This is a model consisting of 7 predictors, and we find the coefficients with
+
+```{r, eval=TRUE, echo=TRUE}
+coef(cv.lasso)
+```
+
+## d)
+TRUE, FALSE, FALSE, TRUE
+
+
+# Task 2
+
+```{r, eval=TRUE, echo=TRUE}
+library(MASS)
+set.seed(1)
+
+# load a synthetic dataset
+id <- "1CWZYfrLOrFdrIZ6Hv73e3xxt0SFgU4Ph"  # google file ID
+synthetic <- read.csv(sprintf("https://docs.google.com/uc?id=%s&export=download", 
+    id))
+
+# split into training and test sets
+train.ind = sample(1:nrow(synthetic), 0.8 * nrow(synthetic))
+synthetic.train = data.frame(synthetic[train.ind, ])
+synthetic.test = data.frame(synthetic[-train.ind, ])
+
+# show head(..)  Y: response variable; X: predictor variable
+head(synthetic)
+ggpairs(synthetic, lower = list(continuous = wrap("points", alpha = 0.3,    size=0.1), 
+              combo = wrap("dot", alpha = 0.4,            size=0.2) ),)
+```
+We first take a look at the data. At first glance, we first observe that there is a prominant correlation between $X_2$ and $X_3$, 
+and between $Y$ and $X_1$.
+
+## a)
+```{r, eval=TRUE, echo=TRUE}
+#Principle Component Regression
+library(pls)
+set.seed(1)
+pcr.fit = pcr(Y ~., data=synthetic.train, scale = TRUE, validation = "CV")
+#summary(pcr.fit)
+validationplot(pcr.fit, val.type = "MSEP", newdata =synthetic.test) 
+#Testing both cross-validation and with test data. Similar results.
+validationplot(pcr.fit, val.type = "MSEP")
+```
+The MSEP for the PCR is clearly minimized with 10 components, i.e. a full model. This suggests that a PCR model won't benefit over an Ordinary Least Squares model.
+
+
+```{r, eval=TRUE, echo=TRUE}
+#Partial Least Squares
+pls.fit = plsr(Y ~., data=synthetic.train, scale = TRUE, validation = "CV")
+#summary(pls.fit)
+validationplot(pls.fit, val.type = "MSEP", newdata = synthetic.test) 
+#Testing both cross-validation and with test data. Similar results.
+validationplot(pls.fit, val.type = "MSEP")
+```
+We observe that for the Partial Least Squares model, the MSEP flat out at the minimum MSEP from 4 components or more. This is a substantial improvement in the number of predictors; 4 instead of 10.
+
+## b)
+In general, the PCR is an unsupervised method, meaning that the correlation between predictors and the response won't influence the choice of principle components. The PCR selects a linear combination of predictors along the direction with the most variance. The PLS, on the other hand, is a supervised method, prioritizing the predictors which correlates the most to $Y$. The components in the PLS is a linear combination of the predictors, where each of them is weighted according to how much $Y$ varies with the particular predictor.
+
+As we see from the ggpairs plot, the strong correlation between $Y$ and $X_1$ suggests that a simple model describes the trends quite well. The PCR doesn't pick up this relation, as the model is unsupervised; the principle component might be in any direction where the variance of the predictors is large. We observe that the variables $ X_2 $ and $X_{3}$ have a large correlation, and thus common covariance along the same direction. These variables will dominate in the first principle component, completely ignoring the relationship between $Y$ and $X_1$. As there seems to be little correlation between $Y$ and $X_2$, $X_3$. This explains why the MSEP doesn't seem to change going from zero to one component in the PCR.
+
+The first component in the PLS is dominated by $X_1$, and we thus see that when we include this component, the MSEP drop drastically. It further drops to the minimum MSEP when the number of components reach four.
+
+# Task 3)
+
+## a)
+TRUE, FALSE, FALSE, TRUE
+
+## b)
+
+```{r, eval=TRUE, echo=TRUE}
+set.seed(1)
+
+data(Boston)
+
+boston<-scale(Boston, center=T, scale=T)
+
+train.id=sample(1:nrow(boston), 0.8*nrow(boston))
+boston.train = data.frame(boston[train.id, ])
+#str(boston.train)
+genaddmod<-gam(medv~rm + s(ptratio, df=3) + poly(lstat, degree=2), data=boston.train)
+
+par(mfrow=c(1,3))
+plot(genaddmod, se=T, col="blue")
+
+```
+
+
+# Task 4
+
+## a)
+FALSE, TRUE, TRUE, TRUE
+
+## b)
+![alt text here](C:\Users\augus\OneDrive - NTNU\Semester 6-LAPTOP-2AJBTS3J\StatLær\Projects\Compulsory 2\tree picture.PNG)
+## c)
+```{r, eval=TRUE, echo = TRUE}
+library(tidyverse)
+library(palmerpenguins)  # Contains the data set 'penguins'.
+library(tree)
+library(randomForest)
+library(e1071)
+data(penguins)
+
+names(penguins) <- c("species", "island", "billL", "billD", "flipperL", "mass", "sex", "year")
+
+Penguins_reduced <- penguins %>% dplyr::mutate(mass = as.numeric(mass), flipperL = as.numeric(flipperL), year = as.numeric(year)) %>% drop_na()
+
+# We do not want 'year' in the data (this will not help for future predictions)
+Penguins_reduced <- Penguins_reduced[, -c(8)]
+
+set.seed(4268)
+# 70% of the sample size for training set
+training_set_size <- floor(0.7 * nrow(Penguins_reduced))
+train_ind <- sample(seq_len(nrow(Penguins_reduced)), size = training_set_size)
+train <- Penguins_reduced[train_ind, ]
+test <- Penguins_reduced[-train_ind, ]
+```
+
+```{r, eval=TRUE, echo = TRUE}
+# create tree with default parameters using gini index
+penguin.tree <- tree(species ~ ., train, split = "gini")
+
+# plot the full tree
+plot(penguin.tree, type = "uniform")
+text(penguin.tree, pretty = 0)
+```
+
+```{r, eval=TRUE, echo = TRUE}
+set.seed(123)
+
+# cost-complexity pruning using 10-fold CV
+cv.penguin <- cv.tree(penguin.tree, FUN = prune.misclass, K = 10)
+
+# plot deviance as a function of tree size
+plot(cv.penguin$dev ~ cv.penguin$size, type = "b", xlab = "Tree Size", ylab = "Deviance")
+```
+
+```{r, eval=TRUE, echo = TRUE}
+# prune the tree according to the optimal tree size 
+prune.penguin <- prune.tree(penguin.tree, best = 3)
+
+# plot the pruned tree
+plot(prune.penguin, type = "uniform")
+text(prune.penguin, pretty = 0)
+```
+
+```{r, eval=TRUE, echo = TRUE}
+# get predictions from training data using the pruned tree
+pred.cv <- predict(prune.penguin, newdata = test, type = "class")
+
+# create confusion table for pruned tree
+misclass.cv <- table(pred.cv, test$species)
+
+# misclassification rate
+error.cv <- 1 - sum(diag(misclass.cv))/sum(misclass.cv)
+
+cat("Misclassification error rate after cost-complexity pruning:", error.cv)
+```
+## d)
+```{r, eval=TRUE, echo = TRUE}
+# create tree using random forest method
+rf.penguin = randomForest(species ~ ., data = train, mtry = round(sqrt(ncol(Penguins_reduced) - 1)), ntree = 600, importance = TRUE)
+
+# get predictions
+pred.rf = predict(rf.penguin, newdata = test, type = "class")
+
+# confusion table
+misclass.rf <- table(pred.rf, test$species)
+
+# misclassification rate
+error.rf = 1 - sum(diag(misclass.rf))/sum(misclass.rf)
+
+cat("Misclassification error rate for random forest method:", error.rf)
+```
+Since we are doing classification we choose the tuning parameter $m$ (number of splits) to be $\approx \sqrt{p/3}$, where $p$ is the number of predictors, as is recommended by the creators of the random forest method.
+```{r, eval=TRUE,echo = TRUE}
+# variable importance plot; type = 2 because we are doing classification and are interested in the gini index
+varImpPlot(rf.penguin, pch = 20, main = "", type = 2)
+```
+As is evident from the variable importance plot above (as well as the previously plotted trees from 4c), the most significant variables for prediction of penguin species are bill length and flipper length.
+
+# Task 5
+
+## a) 
+FALSE, TRUE, TRUE, TRUE
+
+## b) 
+
+```{r, eval=TRUE, echo=TRUE}
+# find optimal cost for support vector classifier
+cv.svc = tune(svm, species ~ ., data = train, kernel = "linear", ranges = list(cost = 10^seq(-1, 2, 0.25)))
+
+# create the optimal classifier
+svc.best <- cv.svc$best.model
+
+# get preditions
+svc.pred <- predict(svc.best, test)
+
+# confusion table
+svc.misclass <- table(svc.pred, test$species)
+
+# ------------------------------------------- #
+
+# find optimal cost and gamma parameter for support vector machine with radial kernel
+cv.svm = tune(svm, species ~ ., data = train, kernel = "radial", ranges = list(cost = 10^seq(-1, 2, 0.25), gamma = 10^seq(-4, 1, 0.25)))
+
+# create optimal SVM
+svm.best <- cv.svm$best.model
+
+# get predictions
+svm.pred <- predict(svm.best, test)
+
+# confusion table
+svm.misclass <- table(svm.pred, test$species)
+```
+
+```{r, eval=TRUE, echo=TRUE}
+# optimal parameter for linear case and corresponding error
+summary(cv.svc)[1]
+summary(cv.svc)[2]
+```
+
+```{r, eval=TRUE, echo=TRUE}
+# optimal parameters for radial case and corresponding error
+summary(cv.svm)[1]
+summary(cv.svm)[2]
+```
+
+We can observe from the above results that the opimal cost for the linear classifier is 1.778279, while the optimal cost and gamma parameter for the radial SVM are 100 and 0.01, respectiely. In both cases, training error is zero.
+
+```{r, eval=TRUE, echo=TRUE}
+# confusion table for linear classifier
+svc.misclass
+```
+
+```{r, eval=TRUE, echo=TRUE}
+# confusion table for SVM with radial kernel
+svm.misclass
+```
+
+In both cases, all test penguins are classified correctly, so the misclassification error rates are zero. This makes it difficult to decide on a preferred classifier. Although the radial kernel might be more widely used in practice, we would perhaps prefer the simpler model, because the cross validation and training is less computationally expensive, while still yielding the same results as the radial SVM.
+
+
+# Task 6)
+```{r, eval=TRUE, echo=TRUE}
+set.seed(1)
+id <- "1NJ1SuUBebl5P8rMSIwm_n3S8a7K43yP4" # google file ID
+happiness <- read.csv(sprintf("https://docs.google.com/uc?id=%s&export=download", id),fileEncoding="UTF-8-BOM")
+
+#colnames(happiness)
+
+cols = c('Country.name', 
+         'Ladder.score',  # happiness score
+         'Logged.GDP.per.capita',  
+         'Social.support', 
+         'Healthy.life.expectancy', 
+         'Freedom.to.make.life.choices',
+         'Generosity',  # how generous people are
+         'Perceptions.of.corruption')
+
+# We continue with a subset of 8 columns:
+happiness = subset(happiness, select = cols)
+rownames(happiness) <- happiness[, c(1)]
+
+# And we creat an X and a Y matrix
+happiness.X = happiness[, -c(1, 2)]
+happiness.Y = happiness[, c(1, 2)]
+happiness.XY = happiness[, -c(1)]
+
+# scale
+happiness.X = data.frame(scale(happiness.X))
+
+pca_mat = prcomp(happiness.X, center = T, scale = T)
+
+summary(pca_mat)
+
+# Score and loadings plot:
+autoplot(pca_mat, data = happiness.X, colour = "Black", loadings = TRUE, loadings.colour = "red", 
+    loadings.label = TRUE, loadings.label.size = 5, label = T, label.size = 4.5)
+```
+
+## a)
+i)
+We are to comment on two characteristics, and the first one we notice is that the predictors "perception of corruption" and "freedom to make life choices" are opposites. This can be interpreted to mean that in countries with a high score of "perception of corruption" have little "freedom to make choices" and vise versa. This can be seen as they are negatively correlated in both PC1 and PC2. 
+The second characteristic we choose to mention, is that of "generosity" and "healthy life expectancy". We notice that "generosity" almost only depends on PC2, while "healthy life expectancy" almost only depends on PC1. That would mean that these are nearly uncorrelated. One might then say that "healthy life expectancy" does not affect a countries "generosity" so two countries could be equally generous, even if one has a bad and one has a good "healthy life expectancy" score. 
+
+ii)
+Afghanistan
+
+## b)
+i)
+```{r, eval=TRUE, echo=TRUE}
+set.seed(1)
+df<-data.frame(pca_mat$rotation)$PC1
+
+absPC <- data.frame(absPC1 = abs(df),
+  Predictors = c(colnames(happiness.XY)[-1]))
+
+ggbarplot(absPC, x = "Predictors", y = "absPC1",
+          main="Sorted by PC1 value",
+          fill="#f1595f",
+          sort.val = "desc",
+          sort.by.groups = FALSE,
+          x.text.angle = 0,
+          orientation="horizontal",
+          lab.size = 0.1
+          )
+
+```
+
+ii)
+```{r, eval=TRUE, echo=TRUE}
+set.seed(1)
+plsr_model <- plsr(Ladder.score~., data=happiness.XY, scale=T)
+```
+
+iii)
+```{r, eval=TRUE, echo=TRUE}
+set.seed(1)
+absPLSR <- data.frame(PLSR =
+  abs(plsr_model$loadings[,c('Comp 1')]),
+  PLSRpred = c(colnames(happiness.XY)[-1]))
+
+ggbarplot(absPLSR, x = "PLSRpred", y = "PLSR",
+          main="Sorted by PLSR value",
+          fill="#f1595f",
+          sort.val = "desc",
+          sort.by.groups = FALSE,
+          x.text.angle = 0,
+          orientation="horizontal",
+          lab.size = 0.1
+          )
+
+```
+
+As expected, the absolute values of the PCA and the results from the PLSR are very similar.
+
+
+iv)
+The three most important factors based on the PLSR are the predictors corresponding to the largest values in the barplot, i.e. Logged GDP per capita, healthy life expectancy and social support in that order. This is also seen from the PCA barplot, which is very similar to the PSLR barplot. 
+
+## c)
+FALSE, FALSE, FALSE, TRUE
+
+## d)
+i)
+```{r, eval=TRUE, echo=TRUE}
+set.seed(1)
+K = 5  # We choose this
+km.out = kmeans(happiness.X, K)
+
+fviz_cluster(km.out, data=happiness.X, 
+             palette = palette(rainbow(5)),
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw())
+
+
+cluster_happiness<-function(){
+  avgtest=rep(NA, K)
+  for (i in 1:K){
+    test=km.out$cluster==i
+    index=which(test==TRUE)
+    avgtest[i]<-mean(happiness.XY[index, ]$Ladder.score)
+  }
+  return (avgtest)
+}
+
+avg_happiness_cluster=cluster_happiness()
+
+avg_df<-data.frame(avg=avg_happiness_cluster,
+    clusters=c("cluster 1", "cluster 2",
+    "cluster3", "cluster 4", "cluster 5"))
+
+ggbarplot(avg_df, x = "clusters", y = "avg",
+          main="Average ladder score of
+          clusters",
+          fill="#f1595f",
+          sort.val = "desc",
+          sort.by.groups = FALSE,
+          x.text.angle = 0,
+          orientation="horizontal"
+          )
+```
+
+ii)
+We make a plot that is easier to interpret, and we see from the barplot that cluster 4(Finland, Switzerland, Australia) has the highest average ladder/happiness score and cluster 2(Burundi, India, Myanmar) has the lowest. It is also worth to mention that happiness seems to go from left to right in declining order.
+
+
+
+
+
+
+
+
+
+
+
+
